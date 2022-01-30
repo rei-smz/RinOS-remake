@@ -9,12 +9,15 @@ mod int;
 mod serial;
 mod gdt;
 mod fifo;
+mod keyboard;
+mod mouse;
 
 use core::panic::PanicInfo;
+use ::vga::colors::Color16;
 use pc_keyboard::DecodedKey;
-use crate::asm::io_sti;
-use crate::int::{KEYBUF, MOUSEBUF, KEYBOARD};
-use crate::vga::{Color, SCREEN, WRITER};
+use crate::asm::{io_hlt, io_sti, io_stihlt};
+use crate::keyboard::{KEYBOARD, KEYBUF};
+use crate::vga::{SCREEN, WRITER};
 
 #[no_mangle] // 不重整函数名
 pub extern "C" fn _start() -> ! {
@@ -25,39 +28,35 @@ pub extern "C" fn _start() -> ! {
     int::init_idt();
     gdt::init_gdt();
     unsafe { int::PICS.lock().initialize(); }
-    int::enable_mouse();
+    mouse::enable_mouse();
     io_sti();
 
     SCREEN.lock().init();
-    WRITER.lock().set(Color::White, 8, 16);
+    WRITER.lock().set(Color16::White, 8, 16);
     use core::fmt::Write;
     write!(WRITER.lock(), "Welcome to").unwrap(); //字符串会吞掉换行后面的字符
-    WRITER.lock().set(Color::Black, 33, 33);
+    WRITER.lock().set(Color16::Black, 33, 33);
     write!(WRITER.lock(), "Rin OS.").unwrap();
-    WRITER.lock().set(Color::White, 32, 32);
+    WRITER.lock().set(Color16::White, 32, 32);
     write!(WRITER.lock(), "Rin OS.").unwrap();
     loop {
         asm::io_cli();
         if KEYBUF.lock().status() != 0 {
             let scancode = KEYBUF.lock().get().unwrap();
-            asm::io_sti();
+            io_sti();
             let mut kbd = KEYBOARD.lock();
             if let Ok(Some(key_event)) = kbd.add_byte(scancode) {
                 if let Some(key) = kbd.process_keyevent(key_event) {
                     match key {
-                        DecodedKey::Unicode(chr) => serial_print!("{}", chr),
-                        DecodedKey::RawKey(key) => serial_print!("{:?}", key)
+                        DecodedKey::Unicode(chr) => serial_println!("[KEYBUF]{}", chr),
+                        DecodedKey::RawKey(key) => serial_println!("[KEYBUF]{:?}", key)
                     }
                 }
             }
-        } else if MOUSEBUF.lock().status() != 0 {
-            let data = MOUSEBUF.lock().get().unwrap();
-            asm::io_sti();
-            serial_print!("{:x}", data);
         } else {
-            asm::io_stihlt();
+            io_stihlt();
         }
-        asm::io_hlt();
+        io_hlt();
     }
 }
 

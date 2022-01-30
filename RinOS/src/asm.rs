@@ -27,7 +27,7 @@ pub fn io_out8(port: u16, data: u8) {
 }
 
 pub fn io_in8(port: u16) -> u8 {
-    let mut ret: u8;
+    let ret: u8;
     unsafe {
         let mut p = PortReadOnly::new(port);
         ret = p.read();
