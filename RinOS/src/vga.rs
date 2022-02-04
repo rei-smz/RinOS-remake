@@ -1,3 +1,4 @@
+use core::cell::RefCell;
 use core::fmt;
 use lazy_static::lazy_static;
 use spin::Mutex;
@@ -28,13 +29,67 @@ const MOUSE_CURSOR: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
     *b".............111"
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layer {
+    buf_addr: usize,
+    x0: usize,
+    y0: usize,
+    xsize: usize,
+    ysize: usize,
+    is_used: bool,
+    height: usize,
+    z: Option<usize>,
+    transparent: Option<Color16>
+}
+
+impl Layer {
+    pub fn new() -> Layer {
+        Layer {
+            x0: 0,
+            y0: 0,
+            xsize: 0,
+            ysize: 0,
+            is_used: false,
+            transparent: None,
+            height: 0,
+            z: None,
+            buf_addr: 0
+        }
+    }
+
+    pub fn set(&mut self,buf: usize, xsize: usize, ysize: usize, height: usize, transparent: Option<Color16>) {
+        self.buf_addr = buf;
+        self.xsize = xsize;
+        self.ysize = ysize;
+        self.height = height;
+        self.transparent = transparent;
+    }
+}
+
+pub struct LayerCtl {
+    pub z_max: Option<usize>,
+    pub layers: [usize; 256],
+    pub layer_data: [Layer; 256]
+}
+
+impl LayerCtl {
+    pub fn new() -> LayerCtl {
+        LayerCtl {
+            z_max: None,
+            layers: [0; 256],
+            layer_data: [Layer::new();256]
+        }
+    }
+}
+
 pub struct Screen {
     mode: Graphics640x480x16,
     xsize: isize,
     ysize: isize,
     mouse: [Color16; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT],
     mouse_x: isize,
-    mouse_y: isize
+    mouse_y: isize,
+    layerctl: LayerCtl
 }
 
 impl Screen {
@@ -46,7 +101,8 @@ impl Screen {
             mode: Graphics640x480x16::new(),
             mouse: [Color16::Cyan; MOUSE_CURSOR_WIDTH * MOUSE_CURSOR_HEIGHT],
             mouse_x: (640 - 16) / 2,
-            mouse_y: (480 - 28 - 16) / 2
+            mouse_y: (480 - 28 - 16) / 2,
+            layerctl: LayerCtl::new()
         }
     }
 
@@ -61,7 +117,6 @@ impl Screen {
         let xsize = self.xsize;
         let ysize = self.ysize;
         //绘制桌面背景和任务栏
-        //self.boxfill8(Color16::Cyan, 0, 0, (xsize - 1) as usize, (ysize - 29) as usize);
         self.mode.clear_screen(Color16::Cyan);
         self.boxfill8(Color16::LightGrey, 0, ysize - 28, xsize - 1, ysize - 28);
         self.boxfill8(Color16::White, 0, ysize - 27, xsize - 1, ysize - 27);
