@@ -1,9 +1,32 @@
 use lazy_static::lazy_static;
 use ps2_mouse::{Mouse, MouseState};
 use x86_64::structures::idt::InterruptStackFrame;
-use crate::{asm, SCREEN, serial_println};
+use crate::{asm, serial_println};
 use crate::int::{InterruptIndex, PICS};
 use spin::Mutex;
+use crate::layer::{bg_layer_index, mouse_layer_index};
+use crate::vga::{hide_mouse_cursor, update_mouse_cursor};
+
+pub const MOUSE_CURSOR_WIDTH: usize = 16;
+pub const MOUSE_CURSOR_HEIGHT: usize = 16;
+pub const MOUSE_CURSOR: [[u8; MOUSE_CURSOR_WIDTH]; MOUSE_CURSOR_HEIGHT] = [
+    *b"111.............",
+    *b"100111..........",
+    *b"100000111.......",
+    *b".10000000111....",
+    *b".1000000000011..",
+    *b".10000001111111.",
+    *b"..1000001.......",
+    *b"..10000001......",
+    *b"..100110001.....",
+    *b"...101.10001....",
+    *b"...101..10001...",
+    *b"...101...10001..",
+    *b"....11....10001.",
+    *b"....11.....10001",
+    *b".....1......1001",
+    *b".............111"
+];
 
 lazy_static! {
     pub static ref MOUSE: Mutex<Mouse> = Mutex::new(Mouse::new());
@@ -28,8 +51,7 @@ fn on_mouse_complete(mouse_state: MouseState) {
     if mouse_state.moved() {
         let dx = mouse_state.get_x();
         let dy = mouse_state.get_y();
-        SCREEN.lock().hide_mouse_cursor();
-        SCREEN.lock().set_mouse_pos(dx as isize, dy as isize);
-        SCREEN.lock().update_mouse_cursor();
+        hide_mouse_cursor(*bg_layer_index.lock());
+        update_mouse_cursor(*mouse_layer_index.lock(), dx as isize, -dy as isize);
     }
 }
