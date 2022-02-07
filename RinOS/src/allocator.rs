@@ -3,8 +3,8 @@ use core::ptr::null_mut;
 use x86_64::{structures::paging::{mapper::MapToError, FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB}, VirtAddr};
 
 //定义起始地址为0x444444440000，大小为100kB的堆
-pub const HEAP_START: usize = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 1024 * 1024; // 100 KiB
+pub const HEAP_START: usize = 0x_4000_0000_0000;
+pub const HEAP_SIZE: usize = 4096 * 1024; // 4MB
 
 pub struct Dummy;
 

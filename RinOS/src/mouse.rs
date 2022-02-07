@@ -5,7 +5,7 @@ use crate::{asm, serial_println};
 use crate::int::{InterruptIndex, PICS};
 use spin::Mutex;
 use crate::layer::{bg_layer_index, mouse_layer_index};
-use crate::vga::{hide_mouse_cursor, update_mouse_cursor};
+use crate::vga::update_mouse_cursor;
 
 pub const MOUSE_CURSOR_WIDTH: usize = 16;
 pub const MOUSE_CURSOR_HEIGHT: usize = 16;
@@ -47,11 +47,9 @@ pub fn enable_mouse() {
 }
 
 fn on_mouse_complete(mouse_state: MouseState) {
-    serial_println!("\n{:?}", mouse_state);
     if mouse_state.moved() {
         let dx = mouse_state.get_x();
         let dy = mouse_state.get_y();
-        hide_mouse_cursor(*bg_layer_index.lock());
-        update_mouse_cursor(*mouse_layer_index.lock(), dx as isize, -dy as isize);
+        update_mouse_cursor(*bg_layer_index.lock(), *mouse_layer_index.lock(), dx as isize, -dy as isize);
     }
 }

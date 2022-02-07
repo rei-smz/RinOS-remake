@@ -1,9 +1,8 @@
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
 use crate::{asm, serial_print, serial_println};
 use lazy_static::lazy_static;
-use crate::gdt;
 use pic8259::ChainedPics;
-use crate::{keyboard, mouse};
+use crate::{keyboard, mouse, gdt, timer};
 use x86_64::structures::idt::PageFaultErrorCode;
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -39,7 +38,7 @@ lazy_static! {
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler).set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
-        idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
+        idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer::timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard::keyboard_interrupt_handler);
         idt[InterruptIndex::Mouse.as_usize()].set_handler_fn(mouse::mouse_interrupt_handler);
         idt
@@ -56,14 +55,6 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 
 extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame, _error_code: u64) -> ! {
     panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
-}
-
-extern "x86-interrupt" fn timer_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    //serial_print!(".");
-
-    unsafe {
-        PICS.lock().notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
-    }
 }
 
 extern "x86-interrupt" fn page_fault_handler (stack_frame: InterruptStackFrame, _error_code: PageFaultErrorCode) {

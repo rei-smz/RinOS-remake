@@ -1,5 +1,6 @@
-use alloc::vec::Vec;
-use core::cmp::min;
+use alloc::vec::{Vec};
+use alloc::vec;
+use core::cmp::{max, min};
 use lazy_static::lazy_static;
 use vga::colors::Color16;
 use crate::vga::VGA;
@@ -34,12 +35,6 @@ impl Layer {
     }
 
     pub fn set(&mut self, buf: &mut Vec<Color16>, xsize: usize, ysize: usize, transparent: Option<Color16>) {
-        // for j in 0..ysize {
-        //     for i in 0..xsize {
-        //         serial_print!("{:x}", buf[j * xsize + i] as u8);
-        //     }
-        //     serial_print!("\n");
-        // }
         self.buf = buf.as_mut_ptr() as usize;
         self.xsize = xsize;
         self.ysize = ysize;
@@ -47,10 +42,14 @@ impl Layer {
     }
 }
 
+lazy_static!(
+    static ref MAP: Mutex<Vec<u8>> = Mutex::new(vec![0; SCREEN_HEIGHT * SCREEN_WIDTH]);
+);
+
 pub struct LayerCtl {
     pub z_max: Option<usize>,
     pub layers: [usize; 256],
-    pub layer_data: [Layer; 256]
+    pub layer_data: [Layer; 256],
 }
 
 impl LayerCtl {
@@ -58,7 +57,7 @@ impl LayerCtl {
         LayerCtl {
             z_max: None,
             layers: [0; 256],
-            layer_data: [Layer::new();256]
+            layer_data: [Layer::new();256],
         }
     }
 
@@ -77,65 +76,67 @@ impl LayerCtl {
         None
     }
 
-    pub fn refresh_part(&self, x0: usize, y0: usize, x1: usize, y1: usize) {
+    pub fn refresh_map(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, z0: usize) {
         if self.z_max.is_none() {
             return;
         }
-        let mut h = 0;
-        while h <= self.z_max.unwrap() {
-            let layer = &self.layer_data[self.layers[h]];
+        let x0 = max(0, x0);
+        let y0 = max(0, y0);
+        let x1 = min(x1, SCREEN_WIDTH);
+        let y1 = min(y1, SCREEN_HEIGHT);
+        for h in z0..=self.z_max.unwrap() {
+            let si = self.layers[h];
+            let layer = self.layer_data[si];
+            let map = unsafe { layer.buf as *const Color16 };
             let bx0 = if x0 > layer.x0 { x0 - layer.x0 } else { 0 };
             let by0 = if y0 > layer.y0 { y0 - layer.y0 } else { 0 };
             let bx1 = if x1 > layer.x0 { min(x1 - layer.x0, layer.xsize) } else { 0 };
             let by1 = if y1 > layer.y0 { min(y1 - layer.y0, layer.ysize) } else { 0 };
-            let map = unsafe { layer.buf as *const Color16 };
-            // for j in by0..by1 {
-            //     for i in bx0..bx1 {
-            //         serial_print!("{:x}", unsafe { *map.offset((j * layer.xsize + i) as isize) } as u8);
-            //     }
-            //     serial_println!("");
-            // }
             for by in by0..by1 {
                 let vy = layer.y0 + by;
                 let width = layer.xsize;
                 for bx in bx0..bx1 {
                     let vx = layer.x0 + bx;
                     let c = unsafe { *map.offset((by * width + bx) as isize) };
-                    //serial_print!("{:x}", c as u8);
                     if !layer.transparent.contains(&c) {
-                        //VGA.lock().draw_line((vx as isize, vy as isize), (vx as isize, vy as isize), c);
-                        VGA.lock().set_pixel(vx, vy, c);
-                        //serial_print!("{:x}", c as u8);
-                    } else {
-                        //serial_print!(".");
+                        MAP.lock()[vy * SCREEN_WIDTH + vx] = si as u8;
                     }
                 }
-                //serial_println!("[DRAW LINE] ({}, {}) -> ({}, {})", by, bx0, by, bx1);
-                //serial_print!("\n");
             }
-            serial_println!("[LAYERCTL] layer {} refreshed", h);
+        }
+    }
+
+    pub fn refresh_part(&self, x0: usize, y0: usize, x1: usize, y1: usize, z0: usize, z1: usize) {
+        if self.z_max.is_none() {
+            return;
+        }
+        let x0 = max(0, x0);
+        let y0 = max(0, y0);
+        let x1 = min(x1, SCREEN_WIDTH);
+        let y1 = min(y1, SCREEN_HEIGHT);
+        let mut h = z0;
+        while h <= z1 {
+            let si = self.layers[h];
+            let layer = &self.layer_data[si];
+            let bx0 = if x0 > layer.x0 { x0 - layer.x0 } else { 0 };
+            let by0 = if y0 > layer.y0 { y0 - layer.y0 } else { 0 };
+            let bx1 = if x1 > layer.x0 { min(x1 - layer.x0, layer.xsize) } else { 0 };
+            let by1 = if y1 > layer.y0 { min(y1 - layer.y0, layer.ysize) } else { 0 };
+            let map = unsafe { layer.buf as *const Color16 };
+            for by in by0..by1 {
+                let vy = layer.y0 + by;
+                let width = layer.xsize;
+                for bx in bx0..bx1 {
+                    let vx = layer.x0 + bx;
+                    let map_si = MAP.lock()[vy * SCREEN_WIDTH + vx];
+                    if si as u8 == map_si {
+                        let c = unsafe { *map.offset((by * width + bx) as isize) };
+                        VGA.lock().set_pixel(vx, vy, c);
+                    }
+                }
+            }
             h += 1;
         }
-        // for h in self.z_max.unwrap()..=0 {
-        //     let layer = &self.layer_data[self.layers[h]];
-        //     let bx0 = if x0 > layer.x0 { x0 - layer.x0 } else { 0 };
-        //     let by0 = if y0 > layer.y0 { y0 - layer.y0 } else { 0 };
-        //     let bx1 = if x1 > layer.x0 { min(x1 - layer.x0, layer.xsize) } else { 0 };
-        //     let by1 = if y1 > layer.y0 { min(y1 - layer.y0, layer.ysize) } else { 0 };
-        //     for by in by0..by1 {
-        //         let vy = layer.y0 + by;
-        //         for bx in bx0..bx1 {
-        //             let vx = layer.x0 + bx;
-        //             let width = layer.xsize;
-        //             let c = unsafe { *(layer.buf as *mut Color16).offset((vy * width + vx) as isize) };
-        //             if Some(c) != layer.transparent {
-        //                 //VGA.lock().draw_line((vx as isize, vy as isize), (vx as isize, vy as isize), c);
-        //                 VGA.lock().set_pixel(vx, vy, c);
-        //             }
-        //         }
-        //     }
-        //     serial_println!("[LAYERCTL] layer {} refreshed", h);
-        // }
     }
 
     pub fn up_down(&mut self, layer_index: usize, oz: Option<usize>) {
@@ -157,9 +158,11 @@ impl LayerCtl {
         };
         self.layer_data[layer_index].z = oz;
         if old != oz {
+            let z0: usize;
+            let z1: usize;
             if let Some(o) = old {
                 if let Some(z) = oz {
-                    if o > z {
+                    if o > z { // down
                         let mut h = o;
                         while h > z {
                             self.layers[h] = self.layers[h - 1];
@@ -167,7 +170,9 @@ impl LayerCtl {
                             h -= 1;
                         }
                         self.layers[z] = layer_index;
-                    } else if o < z {
+                        z0 = z;
+                        z1 = o;
+                    } else if o < z { // up
                         let mut h = o;
                         while h < z {
                             self.layers[h] = self.layers[h + 1];
@@ -175,6 +180,10 @@ impl LayerCtl {
                             h += 1;
                         }
                         self.layers[z] = layer_index;
+                        z0 = z;
+                        z1 = z;
+                    } else {
+                        return;
                     }
                 } else {
                     if let Some(z_max) = self.z_max {
@@ -187,6 +196,8 @@ impl LayerCtl {
                         self.layers[z_max + 1] = layer_index;
                         self.z_max = if z_max > 0 { Some(z_max - 1) } else { None };
                     }
+                    z0 = 0;
+                    z1 = o - 1;
                 }
             } else {
                 if let Some(z) = oz {
@@ -205,16 +216,21 @@ impl LayerCtl {
                     } else {
                         self.z_max = Some(0);
                     }
+                    z0 = z;
+                    z1 = z;
+                } else {
+                    return;
                 }
             }
-            self.refresh_part(layer.x0, layer.y0, layer.x0 + layer.xsize, layer.y0 + layer.ysize);
+            self.refresh_map(layer.x0, layer.y0, layer.x0 + layer.xsize, layer.y0 + layer.ysize, z0);
+            self.refresh_part(layer.x0, layer.y0, layer.x0 + layer.xsize, layer.y0 + layer.ysize, z0, z1);
         }
     }
 
     pub fn refresh(&mut self, layer_index: usize, x0: usize, y0: usize, x1: usize, y1: usize) {
         let layer = self.layer_data[layer_index];
-        if layer.z.is_some() {
-            self.refresh_part(layer.x0 + x0, layer.y0 + y0, layer.x0 + x1, layer.y0 + y1);
+        if let Some(z) = layer.z {
+            self.refresh_part(layer.x0 + x0, layer.y0 + y0, layer.x0 + x1, layer.y0 + y1, z, z);
         }
     }
 
@@ -224,9 +240,11 @@ impl LayerCtl {
         let old_y = layer.y0;
         self.layer_data[layer_index].x0 = x;
         self.layer_data[layer_index].y0 = y;
-        if layer.z.is_some() {
-            self.refresh_part(old_x, old_y, old_x + layer.xsize, old_y + layer.ysize);
-            self.refresh_part(x, y, x + layer.xsize, y + layer.ysize);
+        if let Some(z) = layer.z {
+            self.refresh_map(old_x, old_y, old_x + layer.xsize, old_y + layer.ysize, 0);
+            self.refresh_map(x, y, x + layer.xsize, y + layer.ysize, z);
+            self.refresh_part(old_x, old_y, old_x + layer.xsize, old_y + layer.ysize, 0, z - 1);
+            self.refresh_part(x, y, x + layer.xsize, y + layer.ysize, z, z);
         }
     }
 
@@ -234,8 +252,8 @@ impl LayerCtl {
         let layer = self.layer_data[layer_index];
         let mut new_x = layer.x0 as isize + dx;
         let mut new_y = layer.y0 as isize + dy;
-        let x_max = SCREEN_WIDTH as isize - width;
-        let y_max = SCREEN_HEIGHT as isize - height;
+        let x_max = SCREEN_WIDTH as isize - 1;
+        let y_max = SCREEN_HEIGHT as isize - 1;
         if new_x < 0 {
             new_x = 0;
         } else if new_x > x_max {
@@ -265,6 +283,7 @@ lazy_static! {
 }
 
 lazy_static!(
-    pub static ref mouse_layer_index: Mutex<usize> = { Mutex::new(0) };
-    pub static ref bg_layer_index: Mutex<usize> = { Mutex::new(0) };
+    pub static ref mouse_layer_index: Mutex<usize> = Mutex::new(0);
+    pub static ref bg_layer_index: Mutex<usize> = Mutex::new(0);
+    pub static ref win_layer_index: Mutex<usize> = Mutex::new(0);
 );
