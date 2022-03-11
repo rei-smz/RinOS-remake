@@ -16,6 +16,7 @@ mod memory;
 mod layer;
 mod window;
 mod timer;
+use x86_64::instructions::interrupts;
 
 extern crate alloc;
 
@@ -108,12 +109,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let mut cnt = 0;
     loop {
         cnt += 1;
-        if cnt % 10 == 0 {
-            boxfill(window.borrow_mut(), Color16::LightGrey, 40, 28, 119, 43, 160);
-            let mut writer = LineWriter::new(Color16::Black, 40, 28, 160, 52);
-            writer.write_str(&format!("{:>010}", cnt / 10), window.borrow_mut());
+        boxfill(window.borrow_mut(), Color16::LightGrey, 40, 28, 119, 43, 160);
+        let mut writer = LineWriter::new(Color16::Black, 40, 28, 160, 52);
+        writer.write_str(&format!("{:>010}", cnt), window.borrow_mut());
+        interrupts::without_interrupts(|| {
             LAYERCTL.lock().refresh(*win_layer_index.lock(), 40, 28, 120, 44);
-        }
+        });
         asm::io_cli();
         if KEYBUF.lock().status() != 0 {
             let scancode = KEYBUF.lock().get().unwrap();
@@ -128,8 +129,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
                 }
             }
         } else {
-            io_stihlt();
-            //io_sti();
+            //io_stihlt();
+            io_sti();
         }
         io_hlt();
     }

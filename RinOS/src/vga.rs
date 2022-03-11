@@ -6,6 +6,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use vga::colors::Color16;
 use vga::writers::{Graphics640x480x16, GraphicsWriter};
+use x86_64::instructions::interrupts;
 
 #[allow(dead_code)]
 use crate::font;
@@ -68,8 +69,10 @@ pub fn init_screen(buf: &mut Vec<Color16>) {
 }
 
 pub fn update_mouse_cursor(bg_index: usize, mouse_layer_index: usize, dx: isize, dy: isize) {
-    LAYERCTL.lock().refresh(bg_index, 32, 0, 32 + 15 * 8 , 16);
-    LAYERCTL.lock().slide_by_diff(mouse_layer_index, dx, dy, MOUSE_CURSOR_WIDTH as isize, MOUSE_CURSOR_HEIGHT as isize);
+    interrupts::without_interrupts(|| {
+        LAYERCTL.lock().refresh(bg_index, 32, 0, 32 + 15 * 8 , 16);
+        LAYERCTL.lock().slide_by_diff(mouse_layer_index, dx, dy, MOUSE_CURSOR_WIDTH as isize, MOUSE_CURSOR_HEIGHT as isize);
+    });
 }
 
 //实现写入字符串
