@@ -23,7 +23,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 use ::vga::colors::Color16;
 use pc_keyboard::DecodedKey;
-use crate::asm::{io_hlt, io_sti, io_stihlt};
+use crate::asm::{io_cli, io_hlt, io_sti, io_stihlt};
 use crate::keyboard::{KEYBOARD, KEYBUF};
 use crate::mouse::{MOUSE_CURSOR_WIDTH, MOUSE_CURSOR_HEIGHT, MOUSE_CURSOR};
 use crate::vga::{VGA, SCREEN_WIDTH, SCREEN_HEIGHT, LineWriter, update_mouse_cursor, boxfill};
@@ -38,6 +38,8 @@ use lazy_static::lazy_static;
 use ps2_mouse::MouseState;
 use crate::layer::{bg_layer_index, LAYERCTL, mouse_layer_index, win_layer_index};
 use spin::Mutex;
+use crate::fifo::Fifo;
+use crate::timer::TIMER_CTL;
 
 entry_point!(kernel_main);
 
@@ -106,19 +108,29 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     LAYERCTL.lock().up_down(*win_layer_index.lock(), Some(1));
     LAYERCTL.lock().up_down(*mouse_layer_index.lock(), Some(2));
 
-    let mut cnt = 0;
+    let mut timer_buf1 = Fifo::new(8);
+    let mut timer_buf2 = Fifo::new(8);
+    let mut timer_buf3 = Fifo::new(8);
+    let mut timer_id1 = TIMER_CTL.lock().alloc().unwrap();
+    TIMER_CTL.lock().init_timer(timer_id1, &mut timer_buf1, 1);
+    TIMER_CTL.lock().set_time(timer_id1, 100000);
+    let mut timer_id2 = TIMER_CTL.lock().alloc().unwrap();
+    TIMER_CTL.lock().init_timer(timer_id2, &mut timer_buf2, 1);
+    TIMER_CTL.lock().set_time(timer_id2, 300);
+    let mut timer_id3 = TIMER_CTL.lock().alloc().unwrap();
+    TIMER_CTL.lock().init_timer(timer_id3, &mut timer_buf3, 1);
+    TIMER_CTL.lock().set_time(timer_id3, 50);
+
     loop {
-        cnt += 1;
-        boxfill(window.borrow_mut(), Color16::LightGrey, 40, 28, 119, 43, 160);
-        let mut writer = LineWriter::new(Color16::Black, 40, 28, 160, 52);
-        writer.write_str(&format!("{:>010}", cnt), window.borrow_mut());
-        interrupts::without_interrupts(|| {
+        io_cli();
+        if let Some(t) = TIMER_CTL.try_lock() {
+            boxfill(window.borrow_mut(), Color16::LightGrey, 40, 28, 119, 43, 160);
+            let mut writer = LineWriter::new(Color16::Black, 40, 28, 160, 52);
+            writer.write_str(&format!("{:>010}", t.count), window.borrow_mut());
             LAYERCTL.lock().refresh(*win_layer_index.lock(), 40, 28, 120, 44);
-        });
-        asm::io_cli();
+        }
         if KEYBUF.lock().status() != 0 {
             let scancode = KEYBUF.lock().get().unwrap();
-            io_sti();
             let mut kbd = KEYBOARD.lock();
             if let Ok(Some(key_event)) = kbd.add_byte(scancode) {
                 if let Some(key) = kbd.process_keyevent(key_event) {
@@ -128,10 +140,30 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
                     }
                 }
             }
-        } else {
-            //io_stihlt();
+        }
+        if timer_buf1.status() != 0 {
+            let _ = timer_buf1.get().unwrap();
+            serial_println!("1000[sec]");
+            timer_buf1 = Fifo::new(8);
+        }
+        if timer_buf2.status() != 0 {
+            let _ = timer_buf2.get().unwrap();
+            serial_println!("3[sec]");
+            timer_buf2 = Fifo::new(8);
+        }
+        if timer_buf3.status() != 0 {
+            let i = timer_buf3.get().unwrap();
+            if i != 0 {
+                TIMER_CTL.lock().init_timer(timer_id3, &mut timer_buf3, 0);
+                serial_println!(".");
+            } else {
+                TIMER_CTL.lock().init_timer(timer_id3, &mut timer_buf3, 1);
+                serial_println!("-");
+            }
+            TIMER_CTL.lock().set_time(timer_id3, 50);
             io_sti();
         }
+        io_sti();
         io_hlt();
     }
 }
